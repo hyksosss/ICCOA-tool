@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="#0E1116">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ICCOA-tool Debug Panel"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:paddingBottom="8dp" />
+
+        <TextView style="@style/SectionTitle" android:text="1 Permission" />
+        <LinearLayout style="@style/Card">
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="DUMP" />
+                <TextView android:id="@+id/tv_dump_status" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Overlay" />
+                <TextView android:id="@+id/tv_saw_status" style="@style/RowValue" />
+            </LinearLayout>
+            <TextView
+                android:id="@+id/tv_grant_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="#FFB74D"
+                android:textSize="12sp"
+                android:visibility="gone" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+                <Button
+                    android:id="@+id/btn_recheck"
+                    style="@style/ActionButton"
+                    android:text="Recheck" />
+                <Button
+                    android:id="@+id/btn_goto_overlay"
+                    style="@style/ActionButton"
+                    android:layout_marginStart="8dp"
+                    android:text="Overlay Settings" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView style="@style/SectionTitle" android:text="2 Listener" />
+        <LinearLayout style="@style/Card">
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="State" />
+                <TextView android:id="@+id/tv_listen_status" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Current focus" />
+                <TextView android:id="@+id/tv_current_focus" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Last cost" />
+                <TextView android:id="@+id/tv_dumpsys_cost" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+                <Button
+                    android:id="@+id/btn_start"
+                    style="@style/ActionButton"
+                    android:text="Start" />
+                <Button
+                    android:id="@+id/btn_stop"
+                    style="@style/ActionButton"
+                    android:layout_marginStart="8dp"
+                    android:text="Stop" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView style="@style/SectionTitle" android:text="3 Counters" />
+        <LinearLayout style="@style/Card">
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Total samples" />
+                <TextView android:id="@+id/tv_total_samples" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="360 hits" />
+                <TextView android:id="@+id/tv_count_360" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="non-360" />
+                <TextView android:id="@+id/tv_count_non360" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Last 360 appear" />
+                <TextView android:id="@+id/tv_last_360_appear" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Last 360 disappear" />
+                <TextView android:id="@+id/tv_last_360_disappear" style="@style/RowValue" />
+            </LinearLayout>
+            <Button
+                android:id="@+id/btn_clear_stats"
+                style="@style/ActionButton"
+                android:layout_marginTop="8dp"
+                android:text="Clear counters" />
+        </LinearLayout>
+
+        <TextView style="@style/SectionTitle" android:text="4 Launch Test" />
+        <LinearLayout style="@style/Card">
+            <Button
+                android:id="@+id/btn_launch"
+                style="@style/ActionButton"
+                android:text="Launch ICCOA now" />
+            <TextView
+                android:id="@+id/tv_launch_result"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="#E6EAF0"
+                android:textSize="13sp"
+                android:text="not launched yet" />
+        </LinearLayout>
+
+        <TextView style="@style/SectionTitle" android:text="5 Event Log (last 10)" />
+        <LinearLayout style="@style/Card">
+            <TextView
+                android:id="@+id/tv_logs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="#B0BEC5"
+                android:textSize="12sp"
+                android:text="(none)" />
+            <Button
+                android:id="@+id/btn_clear_logs"
+                style="@style/ActionButton"
+                android:layout_marginTop="8dp"
+                android:text="Clear log" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
