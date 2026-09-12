@@ -10,6 +10,8 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CompoundButton;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
@@ -25,13 +27,19 @@ public final class MainActivity extends Activity {
     private TextView tvListenStatus;
     private TextView tvCurrentFocus;
     private TextView tvDumpsysCost;
+    private TextView tvMachineState;
+    private TextView tvStateBDuration;
     private TextView tvTotalSamples;
     private TextView tvCount360;
     private TextView tvCountNon360;
     private TextView tvLast360Appear;
     private TextView tvLast360Disappear;
+    private TextView tvAutoLaunchCount;
+    private TextView tvLastAutoLaunchAt;
+    private TextView tvLastAutoLaunchResult;
     private TextView tvLaunchResult;
     private TextView tvLogs;
+    private Switch swAuto;
 
     private final SimpleDateFormat tsFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
     private final WindowObserver.Listener listener = this::refreshUI;
@@ -41,19 +49,31 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        tvDumpStatus       = findViewById(R.id.tv_dump_status);
-        tvSawStatus        = findViewById(R.id.tv_saw_status);
-        tvGrantHint        = findViewById(R.id.tv_grant_hint);
-        tvListenStatus     = findViewById(R.id.tv_listen_status);
-        tvCurrentFocus     = findViewById(R.id.tv_current_focus);
-        tvDumpsysCost      = findViewById(R.id.tv_dumpsys_cost);
-        tvTotalSamples     = findViewById(R.id.tv_total_samples);
-        tvCount360         = findViewById(R.id.tv_count_360);
-        tvCountNon360      = findViewById(R.id.tv_count_non360);
-        tvLast360Appear    = findViewById(R.id.tv_last_360_appear);
-        tvLast360Disappear = findViewById(R.id.tv_last_360_disappear);
-        tvLaunchResult     = findViewById(R.id.tv_launch_result);
-        tvLogs             = findViewById(R.id.tv_logs);
+        WindowObserver.getInstance().init(this);
+
+        tvDumpStatus         = findViewById(R.id.tv_dump_status);
+        tvSawStatus          = findViewById(R.id.tv_saw_status);
+        tvGrantHint          = findViewById(R.id.tv_grant_hint);
+        tvListenStatus       = findViewById(R.id.tv_listen_status);
+        tvCurrentFocus       = findViewById(R.id.tv_current_focus);
+        tvDumpsysCost        = findViewById(R.id.tv_dumpsys_cost);
+        tvMachineState       = findViewById(R.id.tv_machine_state);
+        tvStateBDuration     = findViewById(R.id.tv_state_b_duration);
+        tvTotalSamples       = findViewById(R.id.tv_total_samples);
+        tvCount360           = findViewById(R.id.tv_count_360);
+        tvCountNon360        = findViewById(R.id.tv_count_non360);
+        tvLast360Appear      = findViewById(R.id.tv_last_360_appear);
+        tvLast360Disappear   = findViewById(R.id.tv_last_360_disappear);
+        tvAutoLaunchCount    = findViewById(R.id.tv_auto_launch_count);
+        tvLastAutoLaunchAt   = findViewById(R.id.tv_last_auto_launch_at);
+        tvLastAutoLaunchResult = findViewById(R.id.tv_last_auto_launch_result);
+        tvLaunchResult       = findViewById(R.id.tv_launch_result);
+        tvLogs               = findViewById(R.id.tv_logs);
+        swAuto               = findViewById(R.id.sw_auto);
+
+        swAuto.setChecked(WindowObserver.getInstance().isAutoMode());
+        swAuto.setOnCheckedChangeListener((CompoundButton b, boolean checked) ->
+                WindowObserver.getInstance().setAutoMode(checked));
 
         findViewById(R.id.btn_recheck).setOnClickListener(v -> refreshUI());
         findViewById(R.id.btn_goto_overlay).setOnClickListener(v -> gotoOverlaySettings());
@@ -80,6 +100,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (swAuto != null) swAuto.setChecked(WindowObserver.getInstance().isAutoMode());
         refreshUI();
     }
 
@@ -104,28 +125,48 @@ public final class MainActivity extends Activity {
             tvGrantHint.setVisibility(View.GONE);
         } else {
             tvGrantHint.setVisibility(View.VISIBLE);
-            tvGrantHint.setText(
-                    "adb shell pm grant com.iccoa.tool android.permission.DUMP");
+            tvGrantHint.setText("adb shell pm grant com.iccoa.tool android.permission.DUMP");
         }
 
         WindowObserver o = WindowObserver.getInstance();
         tvListenStatus.setText(o.isRunning() ? "running" : "stopped");
-        tvCurrentFocus.setText(o.getCurrentFocus().isEmpty()
-                ? "(none)" : o.getCurrentFocus());
+        tvCurrentFocus.setText(o.getCurrentFocus().isEmpty() ? "(none)" : o.getCurrentFocus());
         tvDumpsysCost.setText(o.getLastDumpsysCostMs() + " ms");
+
+        String stateText;
+        switch (o.getCurrentState()) {
+            case A: stateText = "A (cruise 1000ms)"; break;
+            case B: stateText = "B (track 200ms)"; break;
+            case C: stateText = "C (slow 1000ms)"; break;
+            default: stateText = "stopped"; break;
+        }
+        tvMachineState.setText(stateText);
+
+        long bEnter = o.getStateBEnteredAt();
+        if (o.getCurrentState() == WindowObserver.State.B && bEnter > 0) {
+            long elapsed = System.currentTimeMillis() - bEnter;
+            tvStateBDuration.setText((elapsed / 1000) + "." + ((elapsed % 1000) / 100) + " s / 10 s");
+        } else {
+            tvStateBDuration.setText("-");
+        }
 
         tvTotalSamples.setText(String.valueOf(o.getTotalSamples()));
         tvCount360.setText(String.valueOf(o.getCount360()));
         tvCountNon360.setText(String.valueOf(o.getCountNon360()));
         tvLast360Appear.setText(fmt(o.getLast360AppearAt()));
         tvLast360Disappear.setText(fmt(o.getLast360DisappearAt()));
+        tvAutoLaunchCount.setText(String.valueOf(o.getAutoLaunchCount()));
+        tvLastAutoLaunchAt.setText(fmt(o.getLastAutoLaunchAt()));
+        tvLastAutoLaunchResult.setText(o.getLastAutoLaunchResult().isEmpty()
+                ? "-" : o.getLastAutoLaunchResult());
 
         List<String> logs = o.getLogs();
         if (logs.isEmpty()) {
             tvLogs.setText("(none)");
         } else {
             StringBuilder sb = new StringBuilder();
-            for (String s : logs) sb.append(s).append('\n');
+            int max = Math.min(logs.size(), 20);
+            for (int i = 0; i < max; i++) sb.append(logs.get(i)).append('\n');
             tvLogs.setText(sb.toString().trim());
         }
     }
