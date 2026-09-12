@@ -1,5 +1,6 @@
 package com.iccoa.tool;
 
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -15,17 +16,29 @@ import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Singleton. Background thread polls "dumpsys window" and observes whether
- * the current focus contains "avm360". Activity only reads stats.
+ * Singleton observer with a three-phase state machine.
+ *
+ * State A (cruise, 1000ms): look for 360 appearing.
+ * State B (track,  200ms):  360 is on screen; watch until it disappears.
+ * State C (slow,   1000ms): 360 has been up more than 10s; slow down.
+ *
+ * Action X: whenever 360 disappears (in B or C), wait 50ms, then launch ICCOA.
+ * Auto mode must be ON for Action X to actually fire.
  */
 public final class WindowObserver {
+
+    public enum State { STOPPED, A, B, C }
 
     public interface Listener {
         void onStatsUpdated();
     }
 
-    public static final long POLL_INTERVAL_MS = 500L;
-    private static final int LOG_CAPACITY = 10;
+    public static final long INTERVAL_A_MS = 1000L;
+    public static final long INTERVAL_B_MS = 200L;
+    public static final long INTERVAL_C_MS = 1000L;
+    public static final long STATE_B_TIMEOUT_MS = 10_000L;
+    public static final long ACTION_X_DELAY_MS = 50L;
+    private static final int LOG_CAPACITY = 100;
     private static final String KEY_360 = "avm360";
     private static final long EXEC_TIMEOUT_MS = 2000L;
 
@@ -37,6 +50,12 @@ public final class WindowObserver {
     private Thread worker;
     private volatile boolean running = false;
     private volatile Listener listener;
+    private volatile Context appContext;
+    private volatile boolean autoMode = false;
+
+    private volatile State currentState = State.STOPPED;
+    private volatile long stateBEnteredAt = 0L;
+    private volatile boolean lastWas360 = false;
 
     private volatile String currentFocus = "";
     private volatile long lastDumpsysCostMs = 0L;
@@ -45,7 +64,9 @@ public final class WindowObserver {
     private volatile long countNon360 = 0L;
     private volatile long last360AppearAt = 0L;
     private volatile long last360DisappearAt = 0L;
-    private volatile boolean lastWas360 = false;
+    private volatile long autoLaunchCount = 0L;
+    private volatile long lastAutoLaunchAt = 0L;
+    private volatile String lastAutoLaunchResult = "";
 
     private final Deque<String> logs = new ArrayDeque<>();
 
@@ -60,23 +81,37 @@ public final class WindowObserver {
         return instance;
     }
 
+    public void init(Context context) { this.appContext = context.getApplicationContext(); }
+
     public void setListener(Listener l) { this.listener = l; }
 
     public boolean isRunning() { return running; }
+    public State getCurrentState() { return currentState; }
+    public boolean isAutoMode() { return autoMode; }
+
+    public void setAutoMode(boolean on) {
+        autoMode = on;
+        appendLog("auto mode " + (on ? "ON" : "OFF"));
+        notifyListener();
+    }
 
     public synchronized void start() {
         if (running) return;
         running = true;
+        currentState = State.A;
+        stateBEnteredAt = 0L;
+        lastWas360 = false;
         worker = new Thread(this::loop, "window-observer");
         worker.setDaemon(true);
         worker.start();
-        appendLog("listen started");
+        appendLog("listen started (state A)");
         notifyListener();
     }
 
     public synchronized void stop() {
         if (!running) return;
         running = false;
+        currentState = State.STOPPED;
         Thread t = worker;
         worker = null;
         if (t != null) t.interrupt();
@@ -102,19 +137,23 @@ public final class WindowObserver {
                     if (!lastWas360) last360AppearAt = now;
                     lastWas360 = true;
                     appendLog("[360] " + cost + "ms");
+                    onSample360(now);
                 } else {
                     countNon360++;
-                    if (lastWas360) last360DisappearAt = now;
+                    boolean was360 = lastWas360;
+                    if (was360) last360DisappearAt = now;
                     lastWas360 = false;
                     appendLog("[non360] " + shortFocus(focus) + " " + cost + "ms");
+                    onSampleNon360(was360);
                 }
             } else {
-                appendLog("[empty] dumpsys returned nothing " + cost + "ms");
+                appendLog("[empty] " + cost + "ms");
             }
 
             notifyListener();
 
-            long sleep = POLL_INTERVAL_MS - cost;
+            long interval = intervalForState(currentState);
+            long sleep = interval - cost;
             if (sleep < 0) sleep = 0;
             try {
                 Thread.sleep(sleep);
@@ -124,13 +163,66 @@ public final class WindowObserver {
         }
     }
 
+    private long intervalForState(State s) {
+        switch (s) {
+            case B: return INTERVAL_B_MS;
+            case C: return INTERVAL_C_MS;
+            case A:
+            default: return INTERVAL_A_MS;
+        }
+    }
+
+    private void onSample360(long now) {
+        switch (currentState) {
+            case A:
+                currentState = State.B;
+                stateBEnteredAt = now;
+                appendLog("A -> B");
+                break;
+            case B:
+                if (now - stateBEnteredAt >= STATE_B_TIMEOUT_MS) {
+                    currentState = State.C;
+                    appendLog("B -> C (10s)");
+                }
+                break;
+            case C:
+            default:
+                break;
+        }
+    }
+
+    private void onSampleNon360(boolean was360) {
+        if (!was360) return;
+        if (currentState == State.B || currentState == State.C) {
+            appendLog("360 gone in " + currentState + " -> action X");
+            currentState = State.A;
+            stateBEnteredAt = 0L;
+            if (autoMode) {
+                scheduleActionX();
+            } else {
+                appendLog("auto off, skip action X");
+            }
+        }
+    }
+
+    private void scheduleActionX() {
+        final Context ctx = appContext;
+        if (ctx == null) return;
+        mainHandler.postDelayed(() -> IccoaLauncher.launch(ctx, (ok, msg) -> {
+            autoLaunchCount++;
+            lastAutoLaunchAt = System.currentTimeMillis();
+            lastAutoLaunchResult = (ok ? "OK " : "FAIL ") + msg;
+            appendLog("action X " + lastAutoLaunchResult);
+            notifyListener();
+        }), ACTION_X_DELAY_MS);
+    }
+
     private String execDumpsys() {
         Process proc = null;
         try {
             proc = Runtime.getRuntime().exec(new String[]{
                     "sh", "-c", "dumpsys window 2>/dev/null | grep -i mCurrentFocus"
             });
-
             StringBuilder sb = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(proc.getInputStream()))) {
@@ -139,12 +231,10 @@ public final class WindowObserver {
                     sb.append(line).append(' ');
                 }
             }
-
             if (!proc.waitFor(EXEC_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 proc.destroyForcibly();
                 return null;
             }
-
             String out = sb.toString().trim();
             return out.isEmpty() ? null : out;
         } catch (Exception e) {
@@ -187,11 +277,13 @@ public final class WindowObserver {
     public long getCountNon360() { return countNon360; }
     public long getLast360AppearAt() { return last360AppearAt; }
     public long getLast360DisappearAt() { return last360DisappearAt; }
+    public long getAutoLaunchCount() { return autoLaunchCount; }
+    public long getLastAutoLaunchAt() { return lastAutoLaunchAt; }
+    public String getLastAutoLaunchResult() { return lastAutoLaunchResult; }
+    public long getStateBEnteredAt() { return stateBEnteredAt; }
 
     public List<String> getLogs() {
-        synchronized (logs) {
-            return new ArrayList<>(logs);
-        }
+        synchronized (logs) { return new ArrayList<>(logs); }
     }
 
     public void clearStats() {
