@@ -55,11 +55,19 @@
             </LinearLayout>
         </LinearLayout>
 
-        <TextView style="@style/SectionTitle" android:text="2 Listener" />
+        <TextView style="@style/SectionTitle" android:text="2 State Machine" />
         <LinearLayout style="@style/Card">
             <LinearLayout style="@style/Row">
-                <TextView style="@style/RowLabel" android:text="State" />
+                <TextView style="@style/RowLabel" android:text="Listener" />
                 <TextView android:id="@+id/tv_listen_status" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="State" />
+                <TextView android:id="@+id/tv_machine_state" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="B elapsed" />
+                <TextView android:id="@+id/tv_state_b_duration" style="@style/RowValue" />
             </LinearLayout>
             <LinearLayout style="@style/Row">
                 <TextView style="@style/RowLabel" android:text="Current focus" />
@@ -68,6 +76,15 @@
             <LinearLayout style="@style/Row">
                 <TextView style="@style/RowLabel" android:text="Last cost" />
                 <TextView android:id="@+id/tv_dumpsys_cost" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Auto mode" />
+                <Switch
+                    android:id="@+id/sw_auto"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end" />
             </LinearLayout>
             <LinearLayout
                 android:layout_width="match_parent"
@@ -115,7 +132,23 @@
                 android:text="Clear counters" />
         </LinearLayout>
 
-        <TextView style="@style/SectionTitle" android:text="4 Launch Test" />
+        <TextView style="@style/SectionTitle" android:text="4 Action X (auto)" />
+        <LinearLayout style="@style/Card">
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Auto launch count" />
+                <TextView android:id="@+id/tv_auto_launch_count" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Last auto launch" />
+                <TextView android:id="@+id/tv_last_auto_launch_at" style="@style/RowValue" />
+            </LinearLayout>
+            <LinearLayout style="@style/Row">
+                <TextView style="@style/RowLabel" android:text="Result" />
+                <TextView android:id="@+id/tv_last_auto_launch_result" style="@style/RowValue" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView style="@style/SectionTitle" android:text="5 Manual Launch Test" />
         <LinearLayout style="@style/Card">
             <Button
                 android:id="@+id/btn_launch"
@@ -131,7 +164,7 @@
                 android:text="not launched yet" />
         </LinearLayout>
 
-        <TextView style="@style/SectionTitle" android:text="5 Event Log (last 10)" />
+        <TextView style="@style/SectionTitle" android:text="6 Event Log (last 20)" />
         <LinearLayout style="@style/Card">
             <TextView
                 android:id="@+id/tv_logs"
