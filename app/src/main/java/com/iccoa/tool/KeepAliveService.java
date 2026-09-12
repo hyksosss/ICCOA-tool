@@ -3,13 +3,14 @@ package com.iccoa.tool;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
 
-/** Low-importance foreground service. Keeps the process alive. */
+/** Foreground service. Keeps the process alive and runs the observer. */
 public final class KeepAliveService extends Service {
 
     private static final String CHANNEL_ID = "iccoa_tool";
@@ -28,15 +29,33 @@ public final class KeepAliveService extends Service {
     }
 
     @Override
+    public void onCreate() {
+        super.onCreate();
+        WindowObserver.getInstance().init(this);
+        WindowObserver.getInstance().start();
+    }
+
+    @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         createChannel();
+
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        PendingIntent pi = PendingIntent.getActivity(
+                this, 0, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
         Notification n = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_launcher)
                 .setContentTitle("ICCOA-tool")
-                .setContentText("debug service running")
+                .setContentText("运行中")
                 .setOngoing(true)
+                .setContentIntent(pi)
                 .build();
         startForeground(NOTIFICATION_ID, n);
+
+        WindowObserver.getInstance().init(this);
+        WindowObserver.getInstance().start();
         return START_STICKY;
     }
 
