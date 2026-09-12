@@ -6,69 +6,38 @@ import android.os.Looper;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.text.SimpleDateFormat;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.Deque;
-import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Singleton observer with a three-phase state machine.
  *
- * State A (cruise, 1000ms): look for 360 appearing.
+ * State A (cruise, 1200ms): look for 360 appearing.
  * State B (track,  200ms):  360 is on screen; watch until it disappears.
- * State C (slow,   1000ms): 360 has been up more than 10s; slow down.
+ * State C (slow,   1500ms): 360 has been up more than 10s; slow down.
  *
- * Action X: whenever 360 disappears (in B or C), wait 50ms, then launch ICCOA.
- * Auto mode must be ON for Action X to actually fire.
+ * Action X: whenever 360 disappears (from B or C), wait 50ms, launch ICCOA.
  */
 public final class WindowObserver {
 
-    public enum State { STOPPED, A, B, C }
-
-    public interface Listener {
-        void onStatsUpdated();
-    }
-
-    public static final long INTERVAL_A_MS = 1000L;
-    public static final long INTERVAL_B_MS = 200L;
-    public static final long INTERVAL_C_MS = 1000L;
-    public static final long STATE_B_TIMEOUT_MS = 10_000L;
-    public static final long ACTION_X_DELAY_MS = 50L;
-    private static final int LOG_CAPACITY = 100;
+    private static final long INTERVAL_A_MS = 1200L;
+    private static final long INTERVAL_B_MS = 200L;
+    private static final long INTERVAL_C_MS = 1500L;
+    private static final long STATE_B_TIMEOUT_MS = 10_000L;
+    private static final long ACTION_X_DELAY_MS = 50L;
     private static final String KEY_360 = "avm360";
     private static final long EXEC_TIMEOUT_MS = 2000L;
 
     private static volatile WindowObserver instance;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final SimpleDateFormat tsFormat = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US);
 
     private Thread worker;
-    private volatile boolean running = false;
-    private volatile Listener listener;
     private volatile Context appContext;
-    private volatile boolean autoMode = false;
 
-    private volatile State currentState = State.STOPPED;
+    // 0 = A (cruise), 1 = B (track), 2 = C (slow)
+    private volatile int currentState = 0;
     private volatile long stateBEnteredAt = 0L;
     private volatile boolean lastWas360 = false;
-
-    private volatile String currentFocus = "";
-    private volatile long lastDumpsysCostMs = 0L;
-    private volatile long totalSamples = 0L;
-    private volatile long count360 = 0L;
-    private volatile long countNon360 = 0L;
-    private volatile long last360AppearAt = 0L;
-    private volatile long last360DisappearAt = 0L;
-    private volatile long autoLaunchCount = 0L;
-    private volatile long lastAutoLaunchAt = 0L;
-    private volatile String lastAutoLaunchResult = "";
-
-    private final Deque<String> logs = new ArrayDeque<>();
 
     private WindowObserver() {}
 
@@ -81,76 +50,52 @@ public final class WindowObserver {
         return instance;
     }
 
-    public void init(Context context) { this.appContext = context.getApplicationContext(); }
-
-    public void setListener(Listener l) { this.listener = l; }
-
-    public boolean isRunning() { return running; }
-    public State getCurrentState() { return currentState; }
-    public boolean isAutoMode() { return autoMode; }
-
-    public void setAutoMode(boolean on) {
-        autoMode = on;
-        appendLog("auto mode " + (on ? "ON" : "OFF"));
-        notifyListener();
+    public void init(Context context) {
+        this.appContext = context.getApplicationContext();
     }
 
     public synchronized void start() {
-        if (running) return;
-        running = true;
-        currentState = State.A;
+        if (worker != null && worker.isAlive()) return;
+        currentState = 0;
         stateBEnteredAt = 0L;
         lastWas360 = false;
-        worker = new Thread(this::loop, "window-observer");
-        worker.setDaemon(true);
-        worker.start();
-        appendLog("listen started (state A)");
-        notifyListener();
+        Thread t = new Thread(this::loop, "window-observer");
+        t.setDaemon(true);
+        worker = t;
+        t.start();
     }
 
     public synchronized void stop() {
-        if (!running) return;
-        running = false;
-        currentState = State.STOPPED;
         Thread t = worker;
         worker = null;
         if (t != null) t.interrupt();
-        appendLog("listen stopped");
-        notifyListener();
+    }
+
+    /** Stop current worker and start a fresh one. */
+    public synchronized void reset() {
+        stop();
+        start();
     }
 
     private void loop() {
-        while (running) {
+        final Thread me = Thread.currentThread();
+        while (worker == me) {
             long t0 = System.currentTimeMillis();
             String focus = execDumpsys();
             long cost = System.currentTimeMillis() - t0;
-            lastDumpsysCostMs = cost;
 
             if (focus != null) {
-                currentFocus = focus;
                 boolean is360 = focus.contains(KEY_360);
-                totalSamples++;
                 long now = System.currentTimeMillis();
-
                 if (is360) {
-                    count360++;
-                    if (!lastWas360) last360AppearAt = now;
                     lastWas360 = true;
-                    appendLog("[360] " + cost + "ms");
                     onSample360(now);
                 } else {
-                    countNon360++;
                     boolean was360 = lastWas360;
-                    if (was360) last360DisappearAt = now;
                     lastWas360 = false;
-                    appendLog("[non360] " + shortFocus(focus) + " " + cost + "ms");
                     onSampleNon360(was360);
                 }
-            } else {
-                appendLog("[empty] " + cost + "ms");
             }
-
-            notifyListener();
 
             long interval = intervalForState(currentState);
             long sleep = interval - cost;
@@ -163,29 +108,25 @@ public final class WindowObserver {
         }
     }
 
-    private long intervalForState(State s) {
+    private long intervalForState(int s) {
         switch (s) {
-            case B: return INTERVAL_B_MS;
-            case C: return INTERVAL_C_MS;
-            case A:
+            case 1:  return INTERVAL_B_MS;
+            case 2:  return INTERVAL_C_MS;
             default: return INTERVAL_A_MS;
         }
     }
 
     private void onSample360(long now) {
         switch (currentState) {
-            case A:
-                currentState = State.B;
+            case 0:
+                currentState = 1;
                 stateBEnteredAt = now;
-                appendLog("A -> B");
                 break;
-            case B:
+            case 1:
                 if (now - stateBEnteredAt >= STATE_B_TIMEOUT_MS) {
-                    currentState = State.C;
-                    appendLog("B -> C (10s)");
+                    currentState = 2;
                 }
                 break;
-            case C:
             default:
                 break;
         }
@@ -193,28 +134,17 @@ public final class WindowObserver {
 
     private void onSampleNon360(boolean was360) {
         if (!was360) return;
-        if (currentState == State.B || currentState == State.C) {
-            appendLog("360 gone in " + currentState + " -> action X");
-            currentState = State.A;
+        if (currentState == 1 || currentState == 2) {
+            currentState = 0;
             stateBEnteredAt = 0L;
-            if (autoMode) {
-                scheduleActionX();
-            } else {
-                appendLog("auto off, skip action X");
-            }
+            scheduleActionX();
         }
     }
 
     private void scheduleActionX() {
         final Context ctx = appContext;
         if (ctx == null) return;
-        mainHandler.postDelayed(() -> IccoaLauncher.launch(ctx, (ok, msg) -> {
-            autoLaunchCount++;
-            lastAutoLaunchAt = System.currentTimeMillis();
-            lastAutoLaunchResult = (ok ? "OK " : "FAIL ") + msg;
-            appendLog("action X " + lastAutoLaunchResult);
-            notifyListener();
-        }), ACTION_X_DELAY_MS);
+        mainHandler.postDelayed(() -> IccoaLauncher.launch(ctx, null), ACTION_X_DELAY_MS);
     }
 
     private String execDumpsys() {
@@ -247,57 +177,5 @@ public final class WindowObserver {
                 proc.destroy();
             }
         }
-    }
-
-    private String shortFocus(String raw) {
-        int idx = raw.indexOf(" u0 ");
-        if (idx < 0) return raw.length() > 40 ? raw.substring(0, 40) + "..." : raw;
-        String tail = raw.substring(idx + 4);
-        int sp = tail.indexOf(' ');
-        return sp > 0 ? tail.substring(0, sp) : tail;
-    }
-
-    private void notifyListener() {
-        Listener l = listener;
-        if (l != null) mainHandler.post(l::onStatsUpdated);
-    }
-
-    private void appendLog(String msg) {
-        String entry = tsFormat.format(new Date()) + " " + msg;
-        synchronized (logs) {
-            logs.addFirst(entry);
-            while (logs.size() > LOG_CAPACITY) logs.removeLast();
-        }
-    }
-
-    public String getCurrentFocus() { return currentFocus; }
-    public long getLastDumpsysCostMs() { return lastDumpsysCostMs; }
-    public long getTotalSamples() { return totalSamples; }
-    public long getCount360() { return count360; }
-    public long getCountNon360() { return countNon360; }
-    public long getLast360AppearAt() { return last360AppearAt; }
-    public long getLast360DisappearAt() { return last360DisappearAt; }
-    public long getAutoLaunchCount() { return autoLaunchCount; }
-    public long getLastAutoLaunchAt() { return lastAutoLaunchAt; }
-    public String getLastAutoLaunchResult() { return lastAutoLaunchResult; }
-    public long getStateBEnteredAt() { return stateBEnteredAt; }
-
-    public List<String> getLogs() {
-        synchronized (logs) { return new ArrayList<>(logs); }
-    }
-
-    public void clearStats() {
-        totalSamples = 0;
-        count360 = 0;
-        countNon360 = 0;
-        last360AppearAt = 0;
-        last360DisappearAt = 0;
-        lastWas360 = false;
-        notifyListener();
-    }
-
-    public void clearLogs() {
-        synchronized (logs) { logs.clear(); }
-        notifyListener();
     }
 }
